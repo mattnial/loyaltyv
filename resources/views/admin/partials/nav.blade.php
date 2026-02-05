@@ -19,9 +19,19 @@
                 @endif
 
                 <a href="{{ route('admin.loyalty.index') }}" 
-                   class="{{ request()->routeIs('admin.loyalty*') ? 'text-white border-b-2 border-red-500 pb-1' : 'text-gray-400 hover:text-white transition' }}">
+                   class="{{ request()->routeIs('admin.loyalty.index') || request()->routeIs('admin.loyalty.manual') ? 'text-white border-b-2 border-red-500 pb-1' : 'text-gray-400 hover:text-white transition' }}">
                     ⭐ Fidelidad
                 </a>
+
+                <a href="{{ route('admin.rewards.index') }}" 
+                   class="{{ request()->routeIs('admin.rewards.*') ? 'text-white border-b-2 border-red-500 pb-1' : 'text-gray-400 hover:text-white transition' }}">
+                    🎁 Catálogo
+                </a>
+                <a href="{{ route('admin.redemptions.index') }}" 
+                   class="{{ request()->routeIs('admin.redemptions.*') ? 'text-white border-b-2 border-red-500 pb-1' : 'text-gray-400 hover:text-white transition' }}">
+                    📦 Pedidos
+                </a>
+                <a href="{{ route('admin.popups.index') }}">📢 Publicidad</a>
 
             </div>
         </div>

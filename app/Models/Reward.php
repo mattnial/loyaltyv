@@ -12,9 +12,10 @@ class Reward extends Model
     protected $fillable = [
         'name',
         'description',
-        'cost',
+        'cost',         // El nombre real en la BD
         'stock',
-        'image_url',
+        'image_path',   // Agregamos este
+        'is_featured',  // Agregamos este
         'is_active'
     ];
 }

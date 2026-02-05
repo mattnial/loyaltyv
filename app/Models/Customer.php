@@ -4,31 +4,33 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens; // <--- 1. IMPORTAR ESTO
 
 class Customer extends Model
 {
-    use HasFactory;
+    use HasApiTokens, HasFactory, Notifiable;
 
-    // Aseguramos que apunte a la tabla 'customers'
-    protected $table = 'customers';
-
-    // Campos que permitimos modificar
     protected $fillable = [
-        'identification', // Cédula (VITAL para buscar)
         'first_name',
         'last_name',
+        'identification',
         'email',
-        'plan',
+        'fcm_token',
         'phone',
         'address',
         'password',
+        'status',
         'points',
         'streak_count',
-        'last_payment_date',
-        'birth_date',
-        'contract_start_date'
+        'plan'
     ];
 
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+    
     // Configuración de tipos de datos
     protected $casts = [
         'points' => 'integer',

@@ -6,146 +6,100 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Reward;
 use App\Models\Redemption;
-use App\Models\PointHistory;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
 
 class ClubController extends Controller
 {
-    // 1. OBTENER DATOS DEL CLUB (Home + Catálogo)
+    // 1. PANTALLA PRINCIPAL: Catálogo + Puntos del Usuario
     public function index(Request $request)
     {
-        // En Laravel, obtenemos el usuario autenticado directamente
-        // Asumiendo que usas autenticación o pasas el ID (para pruebas rápidas usaremos la cédula como antes, pero lo ideal es Auth::user())
-        
-        $cedula = $request->input('cedula');
-        $client = DB::table('customers')->where('identification', $cedula)->first();
+        $user = $request->user();
 
-        if (!$client) {
-            return response()->json(['status' => 'error', 'msg' => 'Cliente no encontrado'], 404);
-        }
-
-        // Calcular Nivel
-        $pts = $client->points;
-        $nivel = "Bronce";
-        if ($pts >= 1000) $nivel = "Plata";
-        if ($pts >= 2500) $nivel = "Oro";
-        if ($pts >= 5000) $nivel = "Diamante";
-
-        // Obtener Catálogo (Solo activos y con stock)
-        $rewards = Reward::where('is_active', 1)
-                         ->where('stock', '>', 0)
-                         ->orderBy('cost', 'asc')
-                         ->get();
-
-        // Obtener Historial de Canjes (Últimos 5)
-        $history = Redemption::where('customer_id', $client->id)
-                             ->orderBy('created_at', 'desc')
-                             ->take(5)
-                             ->get();
+        // Premios Activos y con Stock
+        $rewards = Reward::where('is_active', true)
+            ->where('stock', '>', 0)
+            ->orderBy('is_featured', 'desc') // Destacados primero
+            ->orderBy('cost', 'asc')
+            ->get()
+            ->map(function($reward) {
+                return [
+                    'id'          => $reward->id,
+                    'name'        => $reward->name,
+                    'description' => $reward->description,
+                    'cost'        => $reward->cost,
+                    'image'       => $reward->image_path ? asset('storage/' . $reward->image_path) : null,
+                    'is_featured' => $reward->is_featured,
+                ];
+            });
 
         return response()->json([
-            'status' => 'success',
-            'user' => [
-                'points' => $pts,
-                'level' => $nivel
-            ],
-            'catalog' => $rewards,
-            'history' => $history
+            'user_points' => $user->points,
+            'rewards'     => $rewards
         ]);
     }
 
-    // 2. CANJEAR PREMIO
+    // 2. CANJEAR PREMIO (Solicitud)
     public function redeem(Request $request)
     {
-        $cedula = $request->input('cedula');
-        $rewardId = $request->input('reward_id');
+        $request->validate([
+            'reward_id' => 'required|exists:rewards,id'
+        ]);
 
-        // Transacción de Base de Datos (Si falla algo, se deshace todo)
-        return DB::transaction(function () use ($cedula, $rewardId) {
-            
-            // A. Buscar Cliente (Bloqueamos fila para evitar errores de concurrencia)
-            $client = DB::table('customers')->where('identification', $cedula)->lockForUpdate()->first();
-            
-            // B. Buscar Premio
-            $reward = Reward::where('id', $rewardId)->lockForUpdate()->first();
-
-            // Validaciones
-            if (!$client) return response()->json(['status' => 'error', 'msg' => 'Cliente no encontrado']);
-            if (!$reward) return response()->json(['status' => 'error', 'msg' => 'Premio no existe']);
-            if ($reward->stock < 1) return response()->json(['status' => 'error', 'msg' => 'Stock agotado']);
-            if ($client->points < $reward->cost) return response()->json(['status' => 'error', 'msg' => 'Puntos insuficientes']);
-
-            // C. Procesar Canje
-            
-            // 1. Restar Puntos
-            DB::table('customers')->where('id', $client->id)->decrement('points', $reward->cost);
-            
-            // 2. Restar Stock
-            $reward->decrement('stock');
-
-            // 3. Crear Registro de Canje
-            Redemption::create([
-                'customer_id' => $client->id,
-                'reward_id' => $reward->id,
-                'reward_name' => $reward->name,
-                'points_spent' => $reward->cost,
-                'status' => 'pending'
-            ]);
-
-            // 4. Guardar Historial
-            PointHistory::create([
-                'customer_id' => $client->id,
-                'type' => 'spend',
-                'points' => $reward->cost,
-                'description' => "Canje App: " . $reward->name
-            ]);
-
-            return response()->json(['status' => 'success', 'msg' => '¡Canje exitoso!']);
-        });
-    }
-    // En ClubController.php
-
-    public function redeemCode(Request $request)
-    {
-        $cedula = $request->input('cedula');
-        $code = strtoupper($request->input('code'));
-
-        $client = DB::table('customers')->where('identification', $cedula)->first();
-        if (!$client) return response()->json(['status' => 'error', 'msg' => 'Cliente no encontrado']);
-
-        $promo = DB::table('promo_codes')->where('code', $code)->where('is_active', 1)->first();
+        $user = $request->user();
+        $reward = Reward::find($request->reward_id);
 
         // Validaciones
-        if (!$promo) return response()->json(['status' => 'error', 'msg' => 'Código inválido']);
-        if (Carbon::parse($promo->expires_at)->isPast()) return response()->json(['status' => 'error', 'msg' => 'Código expirado']);
-        if ($promo->used_count >= $promo->max_uses) return response()->json(['status' => 'error', 'msg' => 'Código agotado']);
+        if ($user->points < $reward->cost) {
+            return response()->json(['message' => 'No tienes suficientes puntos.'], 400);
+        }
+        if ($reward->stock < 1) {
+            return response()->json(['message' => 'Este premio se agotó.'], 400);
+        }
 
-        // ¿Ya lo usó?
-        $used = DB::table('promo_code_usages')->where('customer_id', $client->id)->where('promo_code_id', $promo->id)->exists();
-        if ($used) return response()->json(['status' => 'error', 'msg' => 'Ya canjeaste este código']);
+        // Transacción Atómica (Seguridad)
+        DB::transaction(function () use ($user, $reward) {
+            // Descontar puntos
+            $user->decrement('points', $reward->cost);
+            
+            // Restar stock
+            $reward->decrement('stock');
 
-        // Aplicar
-        DB::transaction(function() use ($client, $promo) {
-            DB::table('customers')->where('id', $client->id)->increment('points', $promo->points);
-            DB::table('promo_codes')->where('id', $promo->id)->increment('used_count');
-            DB::table('promo_code_usages')->insert([
-                'customer_id' => $client->id,
-                'promo_code_id' => $promo->id,
-                'created_at' => now(),
-                'updated_at' => now()
-            ]);
-            // Historial
-            DB::table('point_histories')->insert([
-                'customer_id' => $client->id,
-                'type' => 'earn',
-                'points' => $promo->points,
-                'description' => "Código Promo: " . $promo->code,
-                'created_at' => now(),
-                'updated_at' => now()
+            // Crear Solicitud de Canje
+            Redemption::create([
+                'customer_id' => $user->id,
+                'reward_id'   => $reward->id,
+                'points_used' => $reward->cost,
+                'status'      => 'pending', // Esperando que Admin asigne sucursal
             ]);
         });
 
-        return response()->json(['status' => 'success', 'msg' => "¡Ganaste {$promo->points} puntos!"]);
+        return response()->json([
+            'message'     => '¡Canje exitoso! Tu solicitud está pendiente de aprobación.',
+            'new_balance' => $user->points
+        ]);
+    }
+
+    // 3. HISTORIAL DE CANJES (NUEVO: Con fotos y estados)
+    public function history(Request $request)
+    {
+        $redemptions = Redemption::where('customer_id', $request->user()->id)
+            ->with('reward')
+            ->latest()
+            ->get()
+            ->map(function($r) {
+                return [
+                    'id'           => $r->id,
+                    'reward_name'  => $r->reward ? $r->reward->name : 'Premio Eliminado',
+                    'points'       => $r->points_used,
+                    'status'       => $r->status, // pending, approved, completed, rejected
+                    'status_label' => $r->status_text, // "📍 Para Retirar"
+                    'status_color' => $r->status_color, // blue, green, etc.
+                    'branch'       => $r->pickup_branch, // "Vilcabamba"
+                    'date'         => $r->created_at->format('d/m/Y'),
+                    'proof_photo'  => $r->proof_photo_path ? asset('storage/' . $r->proof_photo_path) : null,
+                ];
+            });
+
+        return response()->json($redemptions);
     }
 }

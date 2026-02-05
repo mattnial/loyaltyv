@@ -4,24 +4,28 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use App\Models\LoyaltySetting; // Importante: Importar el modelo
+use App\Models\LoyaltySetting;
+use App\Models\StreakMilestone; // <--- Importamos el modelo que acabas de crear
 
 class LoyaltySettingsController extends Controller
 {
-    // 1. Mostrar el Panel
     public function index()
     {
-        // Busca la configuración o crea una vacía en memoria si no existe
         $settings = LoyaltySetting::firstOrNew([]);
         
-        // Retorna la vista (asegúrate que el archivo index.blade.php exista en resources/views/admin/loyalty/)
-        return view('admin.loyalty.index', compact('settings'));
+        // Traemos los hitos ordenados (si la tabla existe y tiene datos)
+        try {
+            $milestones = StreakMilestone::orderBy('months_required', 'asc')->get();
+        } catch (\Exception $e) {
+            $milestones = []; // Si la tabla no existe aún, evitamos error
+        }
+        
+        return view('admin.loyalty.index', compact('settings', 'milestones'));
     }
 
-    // 2. Guardar Cambios
     public function update(Request $request)
     {
-        // Validamos que los datos sean números correctos
+        // 1. Validar
         $data = $request->validate([
             'points_per_payment' => 'required|integer|min:1',
             'payment_start_day'  => 'required|integer|min:1|max:31',
@@ -31,11 +35,29 @@ class LoyaltySettingsController extends Controller
             'points_birthday'    => 'required|integer|min:0',
             'points_anniversary' => 'required|integer|min:0',
             'points_christmas'   => 'required|integer|min:0',
+            // Validación de array de hitos
+            'milestones'         => 'nullable|array',
+            'milestones.*.months'=> 'required|integer|min:1',
+            'milestones.*.points'=> 'required|integer|min:1',
         ]);
 
-        // Guardamos en la base de datos (ID 1 siempre)
-        LoyaltySetting::updateOrCreate(['id' => 1], $data);
+        // 2. Guardar Configuración General
+        // Quitamos 'milestones' del array para que no falle al guardar LoyaltySetting
+        $settingsData = collect($data)->except('milestones')->toArray();
+        LoyaltySetting::updateOrCreate(['id' => 1], $settingsData);
 
-        return back()->with('success', '¡Configuración actualizada correctamente!');
+        // 3. Guardar Hitos de Racha
+        // Borramos los viejos y creamos los nuevos (estrategia simple de sincronización)
+        if ($request->has('milestones')) {
+            StreakMilestone::truncate(); // Limpia la tabla
+            foreach ($request->milestones as $milestone) {
+                StreakMilestone::create([
+                    'months_required' => $milestone['months'],
+                    'bonus_points'    => $milestone['points']
+                ]);
+            }
+        }
+
+        return back()->with('success', '¡Configuración y Hitos actualizados correctamente!');
     }
 }

@@ -68,8 +68,9 @@ class ClubController extends Controller
             Redemption::create([
                 'customer_id' => $user->id,
                 'reward_id'   => $reward->id,
+                'reward_name' => $reward->name, // <--- ¡AQUÍ ESTABA EL ERROR! (Agregado)
                 'points_used' => $reward->cost,
-                'status'      => 'pending', // Esperando que Admin asigne sucursal
+                'status'      => 'pending', 
             ]);
         });
 
@@ -79,7 +80,7 @@ class ClubController extends Controller
         ]);
     }
 
-    // 3. HISTORIAL DE CANJES (NUEVO: Con fotos y estados)
+    // 3. HISTORIAL DE CANJES
     public function history(Request $request)
     {
         $redemptions = Redemption::where('customer_id', $request->user()->id)
@@ -89,12 +90,13 @@ class ClubController extends Controller
             ->map(function($r) {
                 return [
                     'id'           => $r->id,
-                    'reward_name'  => $r->reward ? $r->reward->name : 'Premio Eliminado',
+                    // Si tenemos reward_name en BD úsalo, si no, intenta buscarlo en la relación
+                    'reward_name'  => $r->reward_name ?? ($r->reward ? $r->reward->name : 'Premio Eliminado'),
                     'points'       => $r->points_used,
-                    'status'       => $r->status, // pending, approved, completed, rejected
-                    'status_label' => $r->status_text, // "📍 Para Retirar"
-                    'status_color' => $r->status_color, // blue, green, etc.
-                    'branch'       => $r->pickup_branch, // "Vilcabamba"
+                    'status'       => $r->status,
+                    'status_label' => $r->status_text ?? ucfirst($r->status),
+                    'status_color' => $r->status_color ?? 'grey',
+                    'branch'       => $r->pickup_branch,
                     'date'         => $r->created_at->format('d/m/Y'),
                     'proof_photo'  => $r->proof_photo_path ? asset('storage/' . $r->proof_photo_path) : null,
                 ];

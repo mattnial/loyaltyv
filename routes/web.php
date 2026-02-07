@@ -2,6 +2,10 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http; // <--- AGREGADO
+use Google\Auth\Credentials\ServiceAccountCredentials; // <--- AGREGADO
+use Google\Auth\HttpHandler\HttpHandlerFactory; // <--- AGREGADO
 
 // --- CONTROLADORES ---
 use App\Http\Controllers\Controller;
@@ -131,7 +135,17 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->name('popups.destroy');
 
 });
+Route::post('/user/update-token', function (Request $request) {
+    $request->validate([
+        'token' => 'required|string'
+    ]);
 
+    $user = $request->user(); // Obtiene el usuario logueado
+    $user->fcm_token = $request->token; // Asigna el token
+    $user->save(); // Guarda en la BD
+
+    return response()->json(['message' => 'Token actualizado correctamente']);
+});
 
 // ====================================================
 // 3. HERRAMIENTAS DE DIAGNÓSTICO
@@ -146,5 +160,66 @@ Route::get('/debug-divus', function () {
         if (count($ventas) > 0) { echo "<pre>"; print_r($ventas[0]); echo "</pre>"; }
     } catch (\Exception $e) {
         echo "❌ ERROR: " . $e->getMessage();
+    }
+});
+
+// NUEVA RUTA: PRUEBA DE FIREBASE HTTP V1 (MODERNO)
+Route::get('/test-fcm-v1', function () {
+    // Token específico del emulador
+    $tokenDevice = 'e5WPnNxzRJSDJGYaCAuMHq:APA91bEY8ITf4y7gyALh3pryR5Gcs3G5uI2F-L9sVMEyg1ebmieSdrDE9ys1CMIl2U7u1dOPBJ7e5m-JtfX9Egy1V1bDlX1YdPBmooZsDqsQqKRyWT1VMmg';
+    
+    // Archivo de credenciales JSON (Asegúrate que esté en storage/app/)
+    $rutaJson = storage_path('app/firebase_credentials.json');
+
+    // 1. Verificar archivo
+    if (!file_exists($rutaJson)) {
+        return response()->json([
+            'error' => 'ARCHIVO NO ENCONTRADO',
+            'mensaje' => "No encuentro el archivo JSON en: $rutaJson",
+            'solucion' => 'Copia el archivo descargado de Google dentro de storage/app/ y llámalo firebase_credentials.json'
+        ], 500);
+    }
+
+    try {
+        // 2. Obtener Token de Acceso (OAuth 2.0)
+        $json = json_decode(file_get_contents($rutaJson), true);
+        $projectId = $json['project_id'];
+
+        $credenciales = new ServiceAccountCredentials(
+            'https://www.googleapis.com/auth/firebase.messaging',
+            $rutaJson
+        );
+        
+        $accessToken = $credenciales->fetchAuthToken(HttpHandlerFactory::build());
+        $tokenValue = $accessToken['access_token'];
+
+        // 3. Enviar Notificación (Formato HTTP v1)
+        $payload = [
+            'message' => [
+                'token' => $tokenDevice,
+                'notification' => [
+                    'title' => '🚀 Prueba Exitosa (HTTP v1)',
+                    'body'  => '¡Si ves esto con la App cerrada, Laravel ya funciona!',
+                ],
+                'data' => [
+                    'tipo' => 'manual',
+                    'puntos' => '50',
+                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
+                ]
+            ]
+        ];
+
+        $response = Http::withToken($tokenValue)
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", $payload);
+
+        return $response->json();
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'CRASH',
+            'error' => $e->getMessage(),
+            'linea' => $e->getLine()
+        ], 500);
     }
 });

@@ -12,7 +12,8 @@ class Redemption extends Model
     protected $fillable = [
         'customer_id',
         'reward_id',
-        'points_spent',      // Ojo: Asegúrate que tu migración use este nombre. Si antes era 'points_spent', cámbialo aquí.
+        'reward_name',   // <--- ¡FALTABA ESTE! Sin esto, Laravel borra el nombre antes de guardar.
+        'points_spent',  // <--- Este es el nombre correcto de tu base de datos.
         'status',           // pending, approved, completed, rejected
         'pickup_branch',    // Loja, Vilcabamba, Palanda
         'proof_photo_path', // La foto de la entrega

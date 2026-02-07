@@ -69,7 +69,7 @@ class ClubController extends Controller
                 'customer_id' => $user->id,
                 'reward_id'   => $reward->id,
                 'reward_name' => $reward->name, // <--- ¡AQUÍ ESTABA EL ERROR! (Agregado)
-                'points_used' => $reward->cost,
+                'points_spent' => $reward->cost,
                 'status'      => 'pending', 
             ]);
         });
